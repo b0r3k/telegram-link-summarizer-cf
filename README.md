@@ -29,7 +29,7 @@ pnpm install
 The Telegram webhook needs a public url, so we deploy to Cloudflare Workers. If prompted, create your worker subdomain.
 
 ```bash
-pnpm wrangler deploy
+npx wrangler deploy
 ```
 
 ## Telegram Webhook Setup
