@@ -1,22 +1,18 @@
 {
-	"name": "newbot",
+	"name": "telegram-link-summarizer-cf",
+	"type": "module",
 	"scripts": {},
-
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20250430.0",
 		"wrangler": "^4.14.0"
 	},
-
 	"peerDependencies": {
 		"typescript": "^5.0.0"
 	},
-
 	"packageManager": "pnpm@9.1.4",
-
 	"engines": {
 		"pnpm": "^9.1.4"
 	},
-
 	"pnpm": {
 		"overrides": {
 			"esbuild": "0.21.4"

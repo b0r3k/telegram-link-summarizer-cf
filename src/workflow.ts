@@ -29,7 +29,7 @@ export type Update = {
 	};
 };
 
-type Env = { TELEGRAM_BOT_TOKEN: string };
+type Env = { TELEGRAM_BOT_TOKEN: string; GEMINI_API_KEY: string };
 type Params = Update;
 
 const extractUrls = (text: string): string[] => {
@@ -104,9 +104,6 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 		const messageId = update.message.message_id;
 		const text = update.message.text || "";
 
-		const token = this.env.TELEGRAM_BOT_TOKEN;
-		const url = `https://api.telegram.org/bot${token}/sendMessage`;
-
 		const messageUrls = extractUrls(text);
 
 		if (messageUrls.length === 0) {
@@ -115,7 +112,7 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 
 		// now scrape each URL in its own step, in parallel
 		const promises: Promise<void>[] = [];
-		const contents: string[] = [];
+		const contents: { url: string; content: string }[] = [];
 
 		for (const link of messageUrls) {
 			promises.push(
@@ -137,12 +134,14 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 							throw new Error(`Failed to fetch: ${resp.status}`);
 						}
 
-						return await cleanResponseForAiSummarizationAndConvertToString(
-							resp,
-						);
+						return {
+							url: link,
+							content:
+								await cleanResponseForAiSummarizationAndConvertToString(resp),
+						};
 					})
-					.then((content) => {
-						contents.push(content);
+					.then((res) => {
+						contents.push(res);
 					})
 					.catch((error) => {
 						console.error(`Error fetching ${link}:`, error);
@@ -152,18 +151,82 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 
 		await Promise.all(promises);
 
+		// now call Google AI to summarize the contents
+		const geminiPromises: Promise<void>[] = [];
+		const summaries: string[] = [];
+
+		for (const content of contents) {
+			geminiPromises.push(
+				step
+					.do(`summarize ${content.url}`, async () => {
+						const resp = await fetch(
+							`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.env.GEMINI_API_KEY}`,
+							{
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									system_instruction: {
+										parts: [
+											{
+												text: "You are a researcher always looking for fascinating stuff. Summarize the following text in circa 3 sentences of coherent text, no lists or bulletpoints. No fluff, straight to the point, matter of fact, concise comprehensive summary. Respond with the summary only, no other stuff around.",
+											},
+										],
+									},
+									contents: [
+										{
+											parts: [
+												{
+													text: content.content,
+												},
+											],
+										},
+									],
+								}),
+							},
+						);
+						if (!resp.ok) {
+							throw new Error(`Failed to fetch Gemini API: ${resp.status}`);
+						}
+
+						// biome-ignore lint/suspicious/noExplicitAny: the type is super complicated
+						const data: any = await resp.json();
+						const llmOutput = data.candidates[0].content.parts[0].text;
+
+						if (llmOutput == null) {
+							throw new Error("No text returned from Gemini API");
+						}
+
+						summaries.push(`${content.url}\n${llmOutput}`);
+					})
+					.catch((error) => {
+						console.error(`Error summarizing ${content}:`, error);
+					}),
+			);
+		}
+
+		await Promise.all(geminiPromises);
+
+		const finalMessage = summaries.join("\n\n");
+
+		const token = this.env.TELEGRAM_BOT_TOKEN;
+		const url = `https://api.telegram.org/bot${token}/sendMessage`;
+
 		await step.do("send message", async () => {
 			await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					chat_id: chatId,
-					text: contents.join("\n\n"),
+					text: finalMessage,
 					reply_parameters: { message_id: messageId },
+					disable_notification: true,
+					link_preview_options: { is_disabled: true },
 				}),
 			});
 
-			return contents.join("\n\n");
+			return finalMessage;
 		});
 	}
 }
