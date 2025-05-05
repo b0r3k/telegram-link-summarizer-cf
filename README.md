@@ -19,7 +19,10 @@ A Cloudflare Workers + Workflows project that listens for Telegram updates, scra
 
 ## Installation
 
+Clone this repo and install:
 ```bash
+git clone https://github.com/b0r3k/telegram-link-summarizer-cf.git
+cd telegram-link-summarizer-cf
 pnpm install
 ```
 
@@ -32,7 +35,7 @@ npx wrangler login
 
 ## Deployment
 
-The Telegram webhook needs a public url, so we deploy directly to Cloudflare Workers. 
+Since we need a public URL for the Telegram webhook, there is no simple way to test this locally. Instead, we will deploy the Worker and set up the webhook to point to it.
 
 Set the secrets for your deployment:
 
@@ -54,7 +57,7 @@ npx wrangler deploy
 After deployment, set the bot webhook:
 
 ```bash
-curl -F "url=https://telegram-bot-workflow.<YOUR_WORKER_SUBDOMAIN>/" \
+curl -F "url=https://telegram-bot-workflow.<YOUR_WORKER_SUBDOMAIN>.workers.dev" \
   https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook
 ```
 
@@ -79,3 +82,11 @@ curl -F "url=https://telegram-bot-workflow.<YOUR_WORKER_SUBDOMAIN>/" \
    - Cleans HTML, extracts text  
    - Calls Google Gemini to summarize  
    - Sends a single Telegram message with all summaries  
+
+## Cleanup
+
+To remove the webhook and stop the bot from responding to messages, run:
+
+```bash
+curl https://api.telegram.org/bot<YOUR_TOKEN>/deleteWebhook
+```
