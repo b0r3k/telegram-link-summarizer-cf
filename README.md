@@ -14,8 +14,8 @@ A Cloudflare Workers + Workflows project that listens for Telegram updates, scra
 - Node.js ≥18  
 - pnpm (or npm/yarn)  
 - Cloudflare account with Workers & Wrangler CLI  
-- Telegram Bot Token  
-- Google Gemini API Key (Generative Language API)  
+- Telegram Bot Token [(obtainable from @BotFather)](https://telegram.me/BotFather)
+- Google Gemini API Key (Generative Language API) [(get one here)](https://aistudio.google.com/app/apikey)
 
 ## Installation
 
@@ -23,10 +23,27 @@ A Cloudflare Workers + Workflows project that listens for Telegram updates, scra
 pnpm install
 ```
 
+Log in to your Cloudflare account if necessary:
+
+```bash
+npx wrangler login
+```
+
 
 ## Deployment
 
-The Telegram webhook needs a public url, so we deploy to Cloudflare Workers. If prompted, create your worker subdomain.
+The Telegram webhook needs a public url, so we deploy directly to Cloudflare Workers. 
+
+Set the secrets for your deployment:
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+<input token when prompted>
+npx wrangler secret put GEMINI_API_KEY
+<input key when prompted>
+```
+
+Deploy. If prompted, create your worker subdomain.
 
 ```bash
 npx wrangler deploy
