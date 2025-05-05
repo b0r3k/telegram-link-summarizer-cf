@@ -1,5 +1,8 @@
-import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers";
-import { WorkflowEntrypoint } from "cloudflare:workers";
+import {
+	type WorkflowEvent,
+	type WorkflowStep,
+	WorkflowEntrypoint,
+} from "cloudflare:workers";
 
 // Telegram update type for Workflow payload
 export type Update = {
@@ -29,6 +32,69 @@ export type Update = {
 type Env = { TELEGRAM_BOT_TOKEN: string };
 type Params = Update;
 
+const extractUrls = (text: string): string[] => {
+	const urlRegex = /https?:\/\/[^\s]+/g;
+	const urls = text.match(urlRegex);
+	return urls ? urls : [];
+};
+
+/**
+ * Cleans HTML content for AI summarization using Cloudflare HTMLRewriter
+ *
+ * @param response Response object from fetch containing HTML content
+ * @returns Promise resolving to clean text suitable for AI summarization
+ */
+async function cleanResponseForAiSummarizationAndConvertToString(
+	response: Response,
+): Promise<string> {
+	// Create a collector for the text content
+	const collector: { content: string } = { content: "" };
+
+	// Build HTMLRewriter with a series of transformations
+	const rewriter = new HTMLRewriter()
+		// 1. Remove non-content elements
+		.on("script, style, link, meta, iframe, svg, img, noscript", {
+			element(element): void {
+				element.remove();
+			},
+		})
+		// 2. Remove navigation, headers, footers, ads, etc.
+		.on(
+			'nav, header, footer, aside, [id*="nav"], [class*="nav"], [id*="header"], [id*="footer"], [id*="sidebar"], [id*="ad"], [class*="ad"], [id*="banner"], [class*="banner"]',
+			{
+				element(element): void {
+					element.remove();
+				},
+			},
+		)
+		// 3. Remove comments, popups, and interactive elements
+		.on(
+			'[id*="comment"], [class*="comment"], [id*="popup"], [class*="popup"], form, button',
+			{
+				element(element): void {
+					element.remove();
+				},
+			},
+		)
+		// 4. Extract text from main content elements
+		.on(
+			"article, .article, .content, .main, main, #content, #main, .post, p, h1, h2, h3, h4, h5, h6, li",
+			{
+				text(text): void {
+					collector.content += `${text.text} `;
+				},
+			},
+		);
+
+	// Process the response
+	await rewriter.transform(response.clone()).text();
+
+	// Clean and normalize the collected text
+	return collector.content
+		.replace(/\s+/g, " ") // Normalize whitespace
+		.trim(); // Remove leading/trailing whitespace
+}
+
 export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 	async run(event: WorkflowEvent<Params>, step: WorkflowStep) {
 		const update = event.payload;
@@ -41,16 +107,63 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 		const token = this.env.TELEGRAM_BOT_TOKEN;
 		const url = `https://api.telegram.org/bot${token}/sendMessage`;
 
-		await step.do("echo message", async () => {
+		const messageUrls = extractUrls(text);
+
+		if (messageUrls.length === 0) {
+			return;
+		}
+
+		// now scrape each URL in its own step, in parallel
+		const promises: Promise<void>[] = [];
+		const contents: string[] = [];
+
+		for (const link of messageUrls) {
+			promises.push(
+				step
+					.do(`scrape ${link}`, async () => {
+						const resp = await fetch(link, {
+							headers: {
+								"User-Agent":
+									"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+								Accept:
+									"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+								"Accept-Language": "en-US,en;q=0.9",
+								Connection: "keep-alive",
+								DNT: "1",
+								"Upgrade-Insecure-Requests": "1",
+							},
+						});
+						if (!resp.ok) {
+							throw new Error(`Failed to fetch: ${resp.status}`);
+						}
+
+						return await cleanResponseForAiSummarizationAndConvertToString(
+							resp,
+						);
+					})
+					.then((content) => {
+						contents.push(content);
+					})
+					.catch((error) => {
+						console.error(`Error fetching ${link}:`, error);
+					}),
+			);
+		}
+
+		await Promise.all(promises);
+
+		await step.do("send message", async () => {
 			await fetch(url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					chat_id: chatId,
-					text,
+					text: contents.join("\n\n"),
 					reply_parameters: { message_id: messageId },
 				}),
 			});
+
+			return contents.join("\n\n");
 		});
 	}
 }
