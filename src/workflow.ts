@@ -175,7 +175,7 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 									system_instruction: {
 										parts: [
 											{
-												text: "You are a researcher always looking for fascinating stuff. Summarize the following text in circa 3 sentences of coherent text, no lists or bulletpoints. No fluff, straight to the point, matter of fact, concise comprehensive summary. Respond with the summary only, no other stuff around.",
+												text: "You are a research assistant. Summarize the following text in 2-5 sentences (20-60 words), no lists or bulletpoints. Straight to the point, highly technical matter of fact informative summary. The audience is senior engineers and scientists. Respond with the summary only, no other stuff around.",
 											},
 										],
 									},
