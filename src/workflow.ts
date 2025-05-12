@@ -136,8 +136,7 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 
 						return {
 							url: link,
-							content:
-								await cleanResponseForAiSummarizationAndConvertToString(resp),
+							content: await cleanResponseForAiSummarizationAndConvertToString(resp),
 						};
 					})
 					.then((res) => {
@@ -152,13 +151,19 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 		await Promise.all(promises);
 
 		// now call Google AI to summarize the contents
-		const geminiPromises: Promise<void>[] = [];
+		const geminiPromises: Promise<void | string>[] = [];
 		const summaries: string[] = [];
 
 		for (const content of contents) {
 			geminiPromises.push(
 				step
 					.do(`summarize ${content.url}`, async () => {
+						if (content.content == null || content.content === "") {
+							const summary = `${content.url}\nSorry, I was not able to scrape that url.`;
+							summaries.push(summary);
+							return summary;
+						}
+
 						const resp = await fetch(
 							`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.env.GEMINI_API_KEY}`,
 							{
@@ -198,7 +203,9 @@ export class TelegramBotWorkflow extends WorkflowEntrypoint<Env, Params> {
 							throw new Error("No text returned from Gemini API");
 						}
 
-						summaries.push(`${content.url}\n${llmOutput}`);
+						const summary = `${content.url}\n${llmOutput}`
+						summaries.push(summary);
+						return summary;
 					})
 					.catch((error) => {
 						console.error(`Error summarizing ${content}:`, error);
